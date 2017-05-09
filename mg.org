@@ -21,8 +21,8 @@
 
 #+TITLE: Neo-Davidsonian Semantics with Minimalist Grammars
 #+AUTHOR: David Li
-#+HTML_HEAD_EXTRA: <link rel="stylesheet" type="text/css" href="base.css">
-#+HTML_HEAD_EXTRA: <link rel="stylesheet" type="text/css" href="mg.css">
+#+HTML_HEAD_EXTRA: <link rel="stylesheet" type="text/css" href="static/base.css">
+#+HTML_HEAD_EXTRA: <link rel="stylesheet" type="text/css" href="static/mg.css">
 
 This module implements a basic parser for Hunter (2011)'s formulation of Minimalist Grammars. It is based on various parsers and sources, but primarily on Niedzielski (2015)'s Haskell MGA parser and Hunter (2011)'s book.
 
@@ -671,9 +671,541 @@ Expressions consist of a phonological form, a kind, a list of features, a list o
    ,*)
 #+END_SRC
 
+* Examples
+
+First, we define our basic grammar:
+
+#+BEGIN_SRC ocaml :tangle example.ml :comments org
+  #use "hunter.ml";;
+
+  let basic : grammar = {
+      start_symbols = ["c"];
+      lexicon =
+        [
+          ("alice",     [lie "d"],                            Constant "alice");
+          ("alice.NOM", [lie "d"; lie "k"],                   Constant "alice");
+          ("bob",       [lie "d"],                            Constant "bob");
+          ("bob.NOM",   [lie "d"; lie "k"],                   Constant "bob");
+          ("some",      [lic "n"; lie "d"; lie "q"],          Quantifier Exists);
+          ("some.NOM",  [lic "n"; lie "d"; lie "k"; lie "q"], Quantifier Exists);
+          ("every",     [lic "n"; lie "d"; lie "q"],          Quantifier Forall);
+          ("every.NOM", [lic "n"; lie "d"; lie "k"; lie "q"], Quantifier Forall);
+          ("boy",       [lie "n"],                            Constant "boy");
+          ("girl",      [lie "n"],                            Constant "girl");
+          ("fast",      [lic "n"; lie "n"],                   Constant "fast");
+          ("blonde",    [lic "n"; lie "n"],                   Constant "blonde");
+          ("chase",     [lic "d"; lic "d"; lie "v"],          Constant "chase");
+          ("run",       [lic "d"; lie "v"],                   Constant "run");
+          ("-s",        [lic "v"; lic "k"; lie "t"],          Constant "present");
+          ("quickly",   [adj "v"],                            Constant "quick");
+          ("he.1.NOM",  [lie "d"; lie "k"],                   Variable 1);
+          ("ε",         [lic "t"; lie "c"],                   Constant "");
+          ("ε.Q",       [lic "t"; lic "q"; lie "c"],          Constant "");
+        ];
+    };;
+#+END_SRC
+
+Next, we define our model:
+
+#+BEGIN_SRC ocaml :tangle example.ml :comments org
+  let model = {
+      entities    = ["alice"; "bob"; "carol"];
+      events      = ["chasing"; "running"; "alice chasing carol"; "carol chasing bob"];
+      assignments = [(1, "bob")];
+      predicates  = [
+          "present", ["chasing"; "running"; "alice chasing carol"; "carol chasing bob"];
+          "chase", ["chasing"; "alice chasing carol"; "carol chasing bob"];
+          "quick", ["chasing"; "alice chasing carol"];
+          "run", ["running"];
+          "girl", ["carol"];
+          "fast", ["carol"];
+        ];
+      predicates2 = [
+          "int", ["chasing", "bob"; "alice chasing carol", "carol"; "carol chasing bob", "bob"];
+          "ext", [
+              "chasing", "alice";
+              "running", "alice";
+              "alice chasing carol", "alice";
+              "carol chasing bob", "carol"
+            ]
+        ];
+    };;
+#+END_SRC
+
+Finally, we run our test sentences:
+
+#+BEGIN_SRC ocaml :tangle example.ml :comments org
+  let show_formula formula =
+    print_endline @@ string_of_formula formula;
+    if eval model formula then
+      (print_endline "True"; true)
+    else
+      (print_endline "False"; false);;
+
+  let show_example expected input =
+    match parse basic input with
+    | Some derivation ->
+       let (_, expr, _) = derivation in
+       let formula = get_expr_meaning expr in
+       print_endline input;
+       format_derivation (Format.std_formatter) derivation;
+       let result = show_formula formula in
+       (if result = expected then
+         print_endline "PASS"
+        else
+          (print_endline "FAIL"; failwith "Test failed"));
+       print_newline ()
+    | None -> failwith "Could not parse";;
+
+
+  show_example true  "ε alice.NOM chase -s bob";;
+  show_example true  "ε alice.NOM chase -s bob quickly";;
+  show_example true  "ε alice.NOM run -s";;
+
+  show_example false "ε alice.NOM run -s quickly";;
+  show_example false "ε bob.NOM chase -s alice";;
+  show_example false "ε he.1.NOM chase -s alice";;
+
+  show_example true  "ε.Q alice.NOM chase -s some girl";;
+  show_example true  "ε.Q alice.NOM chase -s some fast girl";;
+  show_example true  "ε.Q alice.NOM chase -s some fast girl quickly";;
+  show_example true  "ε.Q alice.NOM chase -s every girl";;
+  show_example true  "ε.Q some.NOM girl chase -s bob";;
+  show_example true  "ε.Q every.NOM girl chase -s bob";;
+
+  show_example false "ε.Q bob.NOM chase -s some girl";;
+  show_example false "ε.Q bob.NOM chase -s every girl";;
+  show_example false "ε.Q some.NOM girl chase -s alice";;
+  show_example false "ε.Q every.NOM girl chase -s alice";;
+#+END_SRC
+
+The output is as follows:
+#+BEGIN_SRC fundamental
+  ε alice.NOM chase -s bob
+  e0 = <bob::-d = bob, {}>
+  e1 = <chase::+d +d -v = chase, {}>
+  e2 = insert(e0, e1) = <chase::+d +d -v = chase, {<bob::-d = bob, {}>}>
+  e3 = merge_comp(e2) = <chase:+d -v = chase, bob d = bob, {}>
+  e4 = <alice.NOM::-d -k = alice, {}>
+  e5 = insert(e3, e4) = <chase:+d -v = chase, bob d = bob, {<alice.NOM::-d -k = alice, {}>}>
+  e6 = merge_nonfinal(e5) = <chase:-v = chase, alice.NOM d = alice, bob d = bob, {<alice.NOM::-k = alice, {}>}>
+  e7 = spellout(e6) = <alice.NOM chase bob:-v = chase & int(bob) & ext(alice), {<alice.NOM::-k = alice, {}>}>
+  e8 = <-s::+v +k -t = present, {}>
+  e9 = insert(e7, e8) = <-s::+v +k -t = present, {<alice.NOM chase bob:-v = chase & int(bob) & ext(alice), {<alice.NOM::-k = alice, {}>}>}>
+  e10 = merge_comp(e9) = <-s:+k -t = present, alice.NOM chase bob v = chase & int(bob) & ext(alice), {<alice.NOM::-k = alice, {}>}>
+  e11 = merge_spec(e10) = <-s:-t = present, _ k = alice, alice.NOM chase bob v = chase & int(bob) & ext(alice), {}>
+  e12 = spellout(e11) = <_ -s alice.NOM chase bob:-t = <present & chase & int(bob) & ext(alice)>, {}>
+  e13 = <ε::+t -c = , {}>
+  e14 = insert(e12, e13) = <ε::+t -c = , {<_ -s alice.NOM chase bob:-t = <present & chase & int(bob) & ext(alice)>, {}>}>
+  e15 = merge_comp(e14) = <ε:-c = , _ -s alice.NOM chase bob t = <present & chase & int(bob) & ext(alice)>, {}>
+  e16 = spellout(e15) = <_ -s alice.NOM chase bob:-c = <present & chase & int(bob) & ext(alice)>, {}>
+  <present & chase & int(bob) & ext(alice)>
+  True
+  PASS
+
+  ε alice.NOM chase -s bob quickly
+  e0 = <bob::-d = bob, {}>
+  e1 = <chase::+d +d -v = chase, {}>
+  e2 = insert(e0, e1) = <chase::+d +d -v = chase, {<bob::-d = bob, {}>}>
+  e3 = merge_comp(e2) = <chase:+d -v = chase, bob d = bob, {}>
+  e4 = <alice.NOM::-d -k = alice, {}>
+  e5 = insert(e3, e4) = <chase:+d -v = chase, bob d = bob, {<alice.NOM::-d -k = alice, {}>}>
+  e6 = merge_nonfinal(e5) = <chase:-v = chase, alice.NOM d = alice, bob d = bob, {<alice.NOM::-k = alice, {}>}>
+  e7 = <quickly::*v = quick, {}>
+  e8 = insert(e6, e7) = <chase:-v = chase, alice.NOM d = alice, bob d = bob, {<quickly::*v = quick, {}>, <alice.NOM::-k = alice, {}>}>
+  e9 = spellout(e8) = <alice.NOM chase bob quickly:-v = quick & chase & int(bob) & ext(alice), {<alice.NOM::-k = alice, {}>}>
+  e10 = <-s::+v +k -t = present, {}>
+  e11 = insert(e9, e10) = <-s::+v +k -t = present, {<alice.NOM chase bob quickly:-v = quick & chase & int(bob) & ext(alice), {<alice.NOM::-k = alice, {}>}>}>
+  e12 = merge_comp(e11) = <-s:+k -t = present, alice.NOM chase bob quickly v = quick & chase & int(bob) & ext(alice), {<alice.NOM::-k = alice, {}>}>
+  e13 = merge_spec(e12) = <-s:-t = present, _ k = alice, alice.NOM chase bob quickly v = quick & chase & int(bob) & ext(alice), {}>
+  e14 = spellout(e13) = <_ -s alice.NOM chase bob quickly:-t = <present & quick & chase & int(bob) & ext(alice)>, {}>
+  e15 = <ε::+t -c = , {}>
+  e16 = insert(e14, e15) = <ε::+t -c = , {<_ -s alice.NOM chase bob quickly:-t = <present & quick & chase & int(bob) & ext(alice)>, {}>}>
+  e17 = merge_comp(e16) = <ε:-c = , _ -s alice.NOM chase bob quickly t = <present & quick & chase & int(bob) & ext(alice)>, {}>
+  e18 = spellout(e17) = <_ -s alice.NOM chase bob quickly:-c = <present & quick & chase & int(bob) & ext(alice)>, {}>
+  <present & quick & chase & int(bob) & ext(alice)>
+  True
+  PASS
+
+  ε alice.NOM run -s
+  e0 = <run::+d -v = run, {}>
+  e1 = <alice.NOM::-d -k = alice, {}>
+  e2 = insert(e0, e1) = <run::+d -v = run, {<alice.NOM::-d -k = alice, {}>}>
+  e3 = merge_nonfinal(e2) = <run:-v = run, alice.NOM d = alice, {<alice.NOM::-k = alice, {}>}>
+  e4 = spellout(e3) = <alice.NOM run:-v = run & ext(alice), {<alice.NOM::-k = alice, {}>}>
+  e5 = <-s::+v +k -t = present, {}>
+  e6 = insert(e4, e5) = <-s::+v +k -t = present, {<alice.NOM run:-v = run & ext(alice), {<alice.NOM::-k = alice, {}>}>}>
+  e7 = merge_comp(e6) = <-s:+k -t = present, alice.NOM run v = run & ext(alice), {<alice.NOM::-k = alice, {}>}>
+  e8 = merge_spec(e7) = <-s:-t = present, _ k = alice, alice.NOM run v = run & ext(alice), {}>
+  e9 = spellout(e8) = <_ -s alice.NOM run:-t = <present & run & ext(alice)>, {}>
+  e10 = <ε::+t -c = , {}>
+  e11 = insert(e9, e10) = <ε::+t -c = , {<_ -s alice.NOM run:-t = <present & run & ext(alice)>, {}>}>
+  e12 = merge_comp(e11) = <ε:-c = , _ -s alice.NOM run t = <present & run & ext(alice)>, {}>
+  e13 = spellout(e12) = <_ -s alice.NOM run:-c = <present & run & ext(alice)>, {}>
+  <present & run & ext(alice)>
+  True
+  PASS
+
+  ε alice.NOM run -s quickly
+  e0 = <run::+d -v = run, {}>
+  e1 = <alice.NOM::-d -k = alice, {}>
+  e2 = insert(e0, e1) = <run::+d -v = run, {<alice.NOM::-d -k = alice, {}>}>
+  e3 = merge_nonfinal(e2) = <run:-v = run, alice.NOM d = alice, {<alice.NOM::-k = alice, {}>}>
+  e4 = <quickly::*v = quick, {}>
+  e5 = insert(e3, e4) = <run:-v = run, alice.NOM d = alice, {<quickly::*v = quick, {}>, <alice.NOM::-k = alice, {}>}>
+  e6 = spellout(e5) = <alice.NOM run quickly:-v = quick & run & ext(alice), {<alice.NOM::-k = alice, {}>}>
+  e7 = <-s::+v +k -t = present, {}>
+  e8 = insert(e6, e7) = <-s::+v +k -t = present, {<alice.NOM run quickly:-v = quick & run & ext(alice), {<alice.NOM::-k = alice, {}>}>}>
+  e9 = merge_comp(e8) = <-s:+k -t = present, alice.NOM run quickly v = quick & run & ext(alice), {<alice.NOM::-k = alice, {}>}>
+  e10 = merge_spec(e9) = <-s:-t = present, _ k = alice, alice.NOM run quickly v = quick & run & ext(alice), {}>
+  e11 = spellout(e10) = <_ -s alice.NOM run quickly:-t = <present & quick & run & ext(alice)>, {}>
+  e12 = <ε::+t -c = , {}>
+  e13 = insert(e11, e12) = <ε::+t -c = , {<_ -s alice.NOM run quickly:-t = <present & quick & run & ext(alice)>, {}>}>
+  e14 = merge_comp(e13) = <ε:-c = , _ -s alice.NOM run quickly t = <present & quick & run & ext(alice)>, {}>
+  e15 = spellout(e14) = <_ -s alice.NOM run quickly:-c = <present & quick & run & ext(alice)>, {}>
+  <present & quick & run & ext(alice)>
+  False
+  PASS
+
+  ε bob.NOM chase -s alice
+  e0 = <alice::-d = alice, {}>
+  e1 = <chase::+d +d -v = chase, {}>
+  e2 = insert(e0, e1) = <chase::+d +d -v = chase, {<alice::-d = alice, {}>}>
+  e3 = merge_comp(e2) = <chase:+d -v = chase, alice d = alice, {}>
+  e4 = <bob.NOM::-d -k = bob, {}>
+  e5 = insert(e3, e4) = <chase:+d -v = chase, alice d = alice, {<bob.NOM::-d -k = bob, {}>}>
+  e6 = merge_nonfinal(e5) = <chase:-v = chase, bob.NOM d = bob, alice d = alice, {<bob.NOM::-k = bob, {}>}>
+  e7 = spellout(e6) = <bob.NOM chase alice:-v = chase & int(alice) & ext(bob), {<bob.NOM::-k = bob, {}>}>
+  e8 = <-s::+v +k -t = present, {}>
+  e9 = insert(e7, e8) = <-s::+v +k -t = present, {<bob.NOM chase alice:-v = chase & int(alice) & ext(bob), {<bob.NOM::-k = bob, {}>}>}>
+  e10 = merge_comp(e9) = <-s:+k -t = present, bob.NOM chase alice v = chase & int(alice) & ext(bob), {<bob.NOM::-k = bob, {}>}>
+  e11 = merge_spec(e10) = <-s:-t = present, _ k = bob, bob.NOM chase alice v = chase & int(alice) & ext(bob), {}>
+  e12 = spellout(e11) = <_ -s bob.NOM chase alice:-t = <present & chase & int(alice) & ext(bob)>, {}>
+  e13 = <ε::+t -c = , {}>
+  e14 = insert(e12, e13) = <ε::+t -c = , {<_ -s bob.NOM chase alice:-t = <present & chase & int(alice) & ext(bob)>, {}>}>
+  e15 = merge_comp(e14) = <ε:-c = , _ -s bob.NOM chase alice t = <present & chase & int(alice) & ext(bob)>, {}>
+  e16 = spellout(e15) = <_ -s bob.NOM chase alice:-c = <present & chase & int(alice) & ext(bob)>, {}>
+  <present & chase & int(alice) & ext(bob)>
+  False
+  PASS
+
+  ε he.1.NOM chase -s alice
+  e0 = <alice::-d = alice, {}>
+  e1 = <chase::+d +d -v = chase, {}>
+  e2 = insert(e0, e1) = <chase::+d +d -v = chase, {<alice::-d = alice, {}>}>
+  e3 = merge_comp(e2) = <chase:+d -v = chase, alice d = alice, {}>
+  e4 = <he.1.NOM::-d -k = x_1, {}>
+  e5 = insert(e3, e4) = <chase:+d -v = chase, alice d = alice, {<he.1.NOM::-d -k = x_1, {}>}>
+  e6 = merge_nonfinal(e5) = <chase:-v = chase, he.1.NOM d = x_1, alice d = alice, {<he.1.NOM::-k = x_1, {}>}>
+  e7 = spellout(e6) = <he.1.NOM chase alice:-v = chase & int(alice) & ext(x_1), {<he.1.NOM::-k = x_1, {}>}>
+  e8 = <-s::+v +k -t = present, {}>
+  e9 = insert(e7, e8) = <-s::+v +k -t = present, {<he.1.NOM chase alice:-v = chase & int(alice) & ext(x_1), {<he.1.NOM::-k = x_1, {}>}>}>
+  e10 = merge_comp(e9) = <-s:+k -t = present, he.1.NOM chase alice v = chase & int(alice) & ext(x_1), {<he.1.NOM::-k = x_1, {}>}>
+  e11 = merge_spec(e10) = <-s:-t = present, _ k = x_1, he.1.NOM chase alice v = chase & int(alice) & ext(x_1), {}>
+  e12 = spellout(e11) = <_ -s he.1.NOM chase alice:-t = <present & chase & int(alice) & ext(x_1)>, {}>
+  e13 = <ε::+t -c = , {}>
+  e14 = insert(e12, e13) = <ε::+t -c = , {<_ -s he.1.NOM chase alice:-t = <present & chase & int(alice) & ext(x_1)>, {}>}>
+  e15 = merge_comp(e14) = <ε:-c = , _ -s he.1.NOM chase alice t = <present & chase & int(alice) & ext(x_1)>, {}>
+  e16 = spellout(e15) = <_ -s he.1.NOM chase alice:-c = <present & chase & int(alice) & ext(x_1)>, {}>
+  <present & chase & int(alice) & ext(x_1)>
+  False
+  PASS
+
+  ε.Q alice.NOM chase -s some girl
+  e0 = <girl::-n = girl, {}>
+  e1 = <some::+n -d -q = some, {}>
+  e2 = insert(e0, e1) = <some::+n -d -q = some, {<girl::-n = girl, {}>}>
+  e3 = merge_comp(e2) = <some:-d -q = some, girl n = girl, {}>
+  e4 = spellout(e3) = <some girl:-d -q = some & int_-1(girl), {}>
+  e5 = <chase::+d +d -v = chase, {}>
+  e6 = insert(e4, e5) = <chase::+d +d -v = chase, {<some girl:-d -q = some & int_-1(girl), {}>}>
+  e7 = merge_nonfinal(e6) = <chase:+d -v = chase, some girl d = x_-1, {<some girl:-q = some & int_-1(girl), {}>}>
+  e8 = <alice.NOM::-d -k = alice, {}>
+  e9 = insert(e7, e8) = <chase:+d -v = chase, some girl d = x_-1, {<alice.NOM::-d -k = alice, {}>, <some girl:-q = some & int_-1(girl), {}>}>
+  e10 = merge_nonfinal(e9) = <chase:-v = chase, alice.NOM d = alice, some girl d = x_-1, {<alice.NOM::-k = alice, {}>, <some girl:-q = some & int_-1(girl), {}>}>
+  e11 = spellout(e10) = <alice.NOM chase some girl:-v = chase & int(x_-1) & ext(alice), {<alice.NOM::-k = alice, {}>, <some girl:-q = some & int_-1(girl), {}>}>
+  e12 = <-s::+v +k -t = present, {}>
+  e13 = insert(e11, e12) = <-s::+v +k -t = present, {<alice.NOM chase some girl:-v = chase & int(x_-1) & ext(alice), {<alice.NOM::-k = alice, {}>, <some girl:-q = some & int_-1(girl), {}>}>}>
+  e14 = merge_comp(e13) = <-s:+k -t = present, alice.NOM chase some girl v = chase & int(x_-1) & ext(alice), {<alice.NOM::-k = alice, {}>, <some girl:-q = some & int_-1(girl), {}>}>
+  e15 = merge_spec(e14) = <-s:-t = present, _ k = alice, alice.NOM chase some girl v = chase & int(x_-1) & ext(alice), {<some girl:-q = some & int_-1(girl), {}>}>
+  e16 = spellout(e15) = <_ -s alice.NOM chase some girl:-t = <present & chase & int(x_-1) & ext(alice)>, {<some girl:-q = some & int_-1(girl), {}>}>
+  e17 = <ε.Q::+t +q -c = , {}>
+  e18 = insert(e16, e17) = <ε.Q::+t +q -c = , {<_ -s alice.NOM chase some girl:-t = <present & chase & int(x_-1) & ext(alice)>, {<some girl:-q = some & int_-1(girl), {}>}>}>
+  e19 = merge_comp(e18) = <ε.Q:+q -c = , _ -s alice.NOM chase some girl t = <present & chase & int(x_-1) & ext(alice)>, {<some girl:-q = some & int_-1(girl), {}>}>
+  e20 = merge_spec(e19) = <ε.Q:-c = , _ q = some & int_-1(girl), _ -s alice.NOM chase some girl t = <present & chase & int(x_-1) & ext(alice)>, {}>
+  e21 = spellout(e20) = <_ -s alice.NOM chase some girl:-c = some & int_-1(girl) & <present & chase & int(x_-1) & ext(alice)>, {}>
+  some & int_-1(girl) & <present & chase & int(x_-1) & ext(alice)>
+  True
+  PASS
+
+  ε.Q alice.NOM chase -s some fast girl
+  e0 = <girl::-n = girl, {}>
+  e1 = <fast::+n -n = fast, {}>
+  e2 = insert(e0, e1) = <fast::+n -n = fast, {<girl::-n = girl, {}>}>
+  e3 = merge_comp(e2) = <fast:-n = fast, girl n = girl, {}>
+  e4 = spellout(e3) = <fast girl:-n = fast & girl, {}>
+  e5 = <some::+n -d -q = some, {}>
+  e6 = insert(e4, e5) = <some::+n -d -q = some, {<fast girl:-n = fast & girl, {}>}>
+  e7 = merge_comp(e6) = <some:-d -q = some, fast girl n = fast & girl, {}>
+  e8 = spellout(e7) = <some fast girl:-d -q = some & int_-2(fast & girl), {}>
+  e9 = <chase::+d +d -v = chase, {}>
+  e10 = insert(e8, e9) = <chase::+d +d -v = chase, {<some fast girl:-d -q = some & int_-2(fast & girl), {}>}>
+  e11 = merge_nonfinal(e10) = <chase:+d -v = chase, some fast girl d = x_-2, {<some fast girl:-q = some & int_-2(fast & girl), {}>}>
+  e12 = <alice.NOM::-d -k = alice, {}>
+  e13 = insert(e11, e12) = <chase:+d -v = chase, some fast girl d = x_-2, {<alice.NOM::-d -k = alice, {}>, <some fast girl:-q = some & int_-2(fast & girl), {}>}>
+  e14 = merge_nonfinal(e13) = <chase:-v = chase, alice.NOM d = alice, some fast girl d = x_-2, {<alice.NOM::-k = alice, {}>, <some fast girl:-q = some & int_-2(fast & girl), {}>}>
+  e15 = spellout(e14) = <alice.NOM chase some fast girl:-v = chase & int(x_-2) & ext(alice), {<alice.NOM::-k = alice, {}>, <some fast girl:-q = some & int_-2(fast & girl), {}>}>
+  e16 = <-s::+v +k -t = present, {}>
+  e17 = insert(e15, e16) = <-s::+v +k -t = present, {<alice.NOM chase some fast girl:-v = chase & int(x_-2) & ext(alice), {<alice.NOM::-k = alice, {}>, <some fast girl:-q = some & int_-2(fast & girl), {}>}>}>
+  e18 = merge_comp(e17) = <-s:+k -t = present, alice.NOM chase some fast girl v = chase & int(x_-2) & ext(alice), {<alice.NOM::-k = alice, {}>, <some fast girl:-q = some & int_-2(fast & girl), {}>}>
+  e19 = merge_spec(e18) = <-s:-t = present, _ k = alice, alice.NOM chase some fast girl v = chase & int(x_-2) & ext(alice), {<some fast girl:-q = some & int_-2(fast & girl), {}>}>
+  e20 = spellout(e19) = <_ -s alice.NOM chase some fast girl:-t = <present & chase & int(x_-2) & ext(alice)>, {<some fast girl:-q = some & int_-2(fast & girl), {}>}>
+  e21 = <ε.Q::+t +q -c = , {}>
+  e22 = insert(e20, e21) = <ε.Q::+t +q -c = , {<_ -s alice.NOM chase some fast girl:-t = <present & chase & int(x_-2) & ext(alice)>, {<some fast girl:-q = some & int_-2(fast & girl), {}>}>}>
+  e23 = merge_comp(e22) = <ε.Q:+q -c = , _ -s alice.NOM chase some fast girl t = <present & chase & int(x_-2) & ext(alice)>, {<some fast girl:-q = some & int_-2(fast & girl), {}>}>
+  e24 = merge_spec(e23) = <ε.Q:-c = , _ q = some & int_-2(fast & girl), _ -s alice.NOM chase some fast girl t = <present & chase & int(x_-2) & ext(alice)>, {}>
+  e25 = spellout(e24) = <_ -s alice.NOM chase some fast girl:-c = some & int_-2(fast & girl) & <present & chase & int(x_-2) & ext(alice)>, {}>
+  some & int_-2(fast & girl) & <present & chase & int(x_-2) & ext(alice)>
+  True
+  PASS
+
+  ε.Q alice.NOM chase -s some fast girl quickly
+  e0 = <girl::-n = girl, {}>
+  e1 = <fast::+n -n = fast, {}>
+  e2 = insert(e0, e1) = <fast::+n -n = fast, {<girl::-n = girl, {}>}>
+  e3 = merge_comp(e2) = <fast:-n = fast, girl n = girl, {}>
+  e4 = spellout(e3) = <fast girl:-n = fast & girl, {}>
+  e5 = <some::+n -d -q = some, {}>
+  e6 = insert(e4, e5) = <some::+n -d -q = some, {<fast girl:-n = fast & girl, {}>}>
+  e7 = merge_comp(e6) = <some:-d -q = some, fast girl n = fast & girl, {}>
+  e8 = spellout(e7) = <some fast girl:-d -q = some & int_-3(fast & girl), {}>
+  e9 = <chase::+d +d -v = chase, {}>
+  e10 = insert(e8, e9) = <chase::+d +d -v = chase, {<some fast girl:-d -q = some & int_-3(fast & girl), {}>}>
+  e11 = merge_nonfinal(e10) = <chase:+d -v = chase, some fast girl d = x_-3, {<some fast girl:-q = some & int_-3(fast & girl), {}>}>
+  e12 = <alice.NOM::-d -k = alice, {}>
+  e13 = insert(e11, e12) = <chase:+d -v = chase, some fast girl d = x_-3, {<alice.NOM::-d -k = alice, {}>, <some fast girl:-q = some & int_-3(fast & girl), {}>}>
+  e14 = merge_nonfinal(e13) = <chase:-v = chase, alice.NOM d = alice, some fast girl d = x_-3, {<alice.NOM::-k = alice, {}>, <some fast girl:-q = some & int_-3(fast & girl), {}>}>
+  e15 = <quickly::*v = quick, {}>
+  e16 = insert(e14, e15) = <chase:-v = chase, alice.NOM d = alice, some fast girl d = x_-3, {<quickly::*v = quick, {}>, <alice.NOM::-k = alice, {}>, <some fast girl:-q = some & int_-3(fast & girl), {}>}>
+  e17 = spellout(e16) = <alice.NOM chase some fast girl quickly:-v = quick & chase & int(x_-3) & ext(alice), {<alice.NOM::-k = alice, {}>, <some fast girl:-q = some & int_-3(fast & girl), {}>}>
+  e18 = <-s::+v +k -t = present, {}>
+  e19 = insert(e17, e18) = <-s::+v +k -t = present, {<alice.NOM chase some fast girl quickly:-v = quick & chase & int(x_-3) & ext(alice), {<alice.NOM::-k = alice, {}>, <some fast girl:-q = some & int_-3(fast & girl), {}>}>}>
+  e20 = merge_comp(e19) = <-s:+k -t = present, alice.NOM chase some fast girl quickly v = quick & chase & int(x_-3) & ext(alice), {<alice.NOM::-k = alice, {}>, <some fast girl:-q = some & int_-3(fast & girl), {}>}>
+  e21 = merge_spec(e20) = <-s:-t = present, _ k = alice, alice.NOM chase some fast girl quickly v = quick & chase & int(x_-3) & ext(alice), {<some fast girl:-q = some & int_-3(fast & girl), {}>}>
+  e22 = spellout(e21) = <_ -s alice.NOM chase some fast girl quickly:-t = <present & quick & chase & int(x_-3) & ext(alice)>, {<some fast girl:-q = some & int_-3(fast & girl), {}>}>
+  e23 = <ε.Q::+t +q -c = , {}>
+  e24 = insert(e22, e23) = <ε.Q::+t +q -c = , {<_ -s alice.NOM chase some fast girl quickly:-t = <present & quick & chase & int(x_-3) & ext(alice)>, {<some fast girl:-q = some & int_-3(fast & girl), {}>}>}>
+  e25 = merge_comp(e24) = <ε.Q:+q -c = , _ -s alice.NOM chase some fast girl quickly t = <present & quick & chase & int(x_-3) & ext(alice)>, {<some fast girl:-q = some & int_-3(fast & girl), {}>}>
+  e26 = merge_spec(e25) = <ε.Q:-c = , _ q = some & int_-3(fast & girl), _ -s alice.NOM chase some fast girl quickly t = <present & quick & chase & int(x_-3) & ext(alice)>, {}>
+  e27 = spellout(e26) = <_ -s alice.NOM chase some fast girl quickly:-c = some & int_-3(fast & girl) & <present & quick & chase & int(x_-3) & ext(alice)>, {}>
+  some & int_-3(fast & girl) & <present & quick & chase & int(x_-3) & ext(alice)>
+  True
+  PASS
+
+  ε.Q alice.NOM chase -s every girl
+  e0 = <girl::-n = girl, {}>
+  e1 = <every::+n -d -q = every, {}>
+  e2 = insert(e0, e1) = <every::+n -d -q = every, {<girl::-n = girl, {}>}>
+  e3 = merge_comp(e2) = <every:-d -q = every, girl n = girl, {}>
+  e4 = spellout(e3) = <every girl:-d -q = every & int_-4(girl), {}>
+  e5 = <chase::+d +d -v = chase, {}>
+  e6 = insert(e4, e5) = <chase::+d +d -v = chase, {<every girl:-d -q = every & int_-4(girl), {}>}>
+  e7 = merge_nonfinal(e6) = <chase:+d -v = chase, every girl d = x_-4, {<every girl:-q = every & int_-4(girl), {}>}>
+  e8 = <alice.NOM::-d -k = alice, {}>
+  e9 = insert(e7, e8) = <chase:+d -v = chase, every girl d = x_-4, {<alice.NOM::-d -k = alice, {}>, <every girl:-q = every & int_-4(girl), {}>}>
+  e10 = merge_nonfinal(e9) = <chase:-v = chase, alice.NOM d = alice, every girl d = x_-4, {<alice.NOM::-k = alice, {}>, <every girl:-q = every & int_-4(girl), {}>}>
+  e11 = spellout(e10) = <alice.NOM chase every girl:-v = chase & int(x_-4) & ext(alice), {<alice.NOM::-k = alice, {}>, <every girl:-q = every & int_-4(girl), {}>}>
+  e12 = <-s::+v +k -t = present, {}>
+  e13 = insert(e11, e12) = <-s::+v +k -t = present, {<alice.NOM chase every girl:-v = chase & int(x_-4) & ext(alice), {<alice.NOM::-k = alice, {}>, <every girl:-q = every & int_-4(girl), {}>}>}>
+  e14 = merge_comp(e13) = <-s:+k -t = present, alice.NOM chase every girl v = chase & int(x_-4) & ext(alice), {<alice.NOM::-k = alice, {}>, <every girl:-q = every & int_-4(girl), {}>}>
+  e15 = merge_spec(e14) = <-s:-t = present, _ k = alice, alice.NOM chase every girl v = chase & int(x_-4) & ext(alice), {<every girl:-q = every & int_-4(girl), {}>}>
+  e16 = spellout(e15) = <_ -s alice.NOM chase every girl:-t = <present & chase & int(x_-4) & ext(alice)>, {<every girl:-q = every & int_-4(girl), {}>}>
+  e17 = <ε.Q::+t +q -c = , {}>
+  e18 = insert(e16, e17) = <ε.Q::+t +q -c = , {<_ -s alice.NOM chase every girl:-t = <present & chase & int(x_-4) & ext(alice)>, {<every girl:-q = every & int_-4(girl), {}>}>}>
+  e19 = merge_comp(e18) = <ε.Q:+q -c = , _ -s alice.NOM chase every girl t = <present & chase & int(x_-4) & ext(alice)>, {<every girl:-q = every & int_-4(girl), {}>}>
+  e20 = merge_spec(e19) = <ε.Q:-c = , _ q = every & int_-4(girl), _ -s alice.NOM chase every girl t = <present & chase & int(x_-4) & ext(alice)>, {}>
+  e21 = spellout(e20) = <_ -s alice.NOM chase every girl:-c = every & int_-4(girl) & <present & chase & int(x_-4) & ext(alice)>, {}>
+  every & int_-4(girl) & <present & chase & int(x_-4) & ext(alice)>
+  True
+  PASS
+
+  ε.Q some.NOM girl chase -s bob
+  e0 = <girl::-n = girl, {}>
+  e1 = <some.NOM::+n -d -k -q = some, {}>
+  e2 = insert(e0, e1) = <some.NOM::+n -d -k -q = some, {<girl::-n = girl, {}>}>
+  e3 = merge_comp(e2) = <some.NOM:-d -k -q = some, girl n = girl, {}>
+  e4 = spellout(e3) = <some.NOM girl:-d -k -q = some & int_-5(girl), {}>
+  e5 = <chase::+d +d -v = chase, {}>
+  e6 = <bob::-d = bob, {}>
+  e7 = insert(e5, e6) = <chase::+d +d -v = chase, {<bob::-d = bob, {}>}>
+  e8 = merge_comp(e7) = <chase:+d -v = chase, bob d = bob, {}>
+  e9 = insert(e4, e8) = <chase:+d -v = chase, bob d = bob, {<some.NOM girl:-d -k -q = some & int_-5(girl), {}>}>
+  e10 = merge_nonfinal(e9) = <chase:-v = chase, some.NOM girl d = x_-5, bob d = bob, {<some.NOM girl:-k -q = some & int_-5(girl), {}>}>
+  e11 = spellout(e10) = <some.NOM girl chase bob:-v = chase & int(bob) & ext(x_-5), {<some.NOM girl:-k -q = some & int_-5(girl), {}>}>
+  e12 = <-s::+v +k -t = present, {}>
+  e13 = insert(e11, e12) = <-s::+v +k -t = present, {<some.NOM girl chase bob:-v = chase & int(bob) & ext(x_-5), {<some.NOM girl:-k -q = some & int_-5(girl), {}>}>}>
+  e14 = merge_comp(e13) = <-s:+k -t = present, some.NOM girl chase bob v = chase & int(bob) & ext(x_-5), {<some.NOM girl:-k -q = some & int_-5(girl), {}>}>
+  e15 = merge_nonfinal(e14) = <-s:-t = present, some.NOM girl k = x_-5, some.NOM girl chase bob v = chase & int(bob) & ext(x_-5), {<some.NOM girl:-q = some & int_-5(girl), {}>}>
+  e16 = spellout(e15) = <some.NOM girl -s some.NOM girl chase bob:-t = <present & chase & int(bob) & ext(x_-5)>, {<some.NOM girl:-q = some & int_-5(girl), {}>}>
+  e17 = <ε.Q::+t +q -c = , {}>
+  e18 = insert(e16, e17) = <ε.Q::+t +q -c = , {<some.NOM girl -s some.NOM girl chase bob:-t = <present & chase & int(bob) & ext(x_-5)>, {<some.NOM girl:-q = some & int_-5(girl), {}>}>}>
+  e19 = merge_comp(e18) = <ε.Q:+q -c = , some.NOM girl -s some.NOM girl chase bob t = <present & chase & int(bob) & ext(x_-5)>, {<some.NOM girl:-q = some & int_-5(girl), {}>}>
+  e20 = merge_spec(e19) = <ε.Q:-c = , _ q = some & int_-5(girl), some.NOM girl -s some.NOM girl chase bob t = <present & chase & int(bob) & ext(x_-5)>, {}>
+  e21 = spellout(e20) = <some.NOM girl -s some.NOM girl chase bob:-c = some & int_-5(girl) & <present & chase & int(bob) & ext(x_-5)>, {}>
+  some & int_-5(girl) & <present & chase & int(bob) & ext(x_-5)>
+  True
+  PASS
+
+  ε.Q every.NOM girl chase -s bob
+  e0 = <girl::-n = girl, {}>
+  e1 = <every.NOM::+n -d -k -q = every, {}>
+  e2 = insert(e0, e1) = <every.NOM::+n -d -k -q = every, {<girl::-n = girl, {}>}>
+  e3 = merge_comp(e2) = <every.NOM:-d -k -q = every, girl n = girl, {}>
+  e4 = spellout(e3) = <every.NOM girl:-d -k -q = every & int_-6(girl), {}>
+  e5 = <chase::+d +d -v = chase, {}>
+  e6 = <bob::-d = bob, {}>
+  e7 = insert(e5, e6) = <chase::+d +d -v = chase, {<bob::-d = bob, {}>}>
+  e8 = merge_comp(e7) = <chase:+d -v = chase, bob d = bob, {}>
+  e9 = insert(e4, e8) = <chase:+d -v = chase, bob d = bob, {<every.NOM girl:-d -k -q = every & int_-6(girl), {}>}>
+  e10 = merge_nonfinal(e9) = <chase:-v = chase, every.NOM girl d = x_-6, bob d = bob, {<every.NOM girl:-k -q = every & int_-6(girl), {}>}>
+  e11 = spellout(e10) = <every.NOM girl chase bob:-v = chase & int(bob) & ext(x_-6), {<every.NOM girl:-k -q = every & int_-6(girl), {}>}>
+  e12 = <-s::+v +k -t = present, {}>
+  e13 = insert(e11, e12) = <-s::+v +k -t = present, {<every.NOM girl chase bob:-v = chase & int(bob) & ext(x_-6), {<every.NOM girl:-k -q = every & int_-6(girl), {}>}>}>
+  e14 = merge_comp(e13) = <-s:+k -t = present, every.NOM girl chase bob v = chase & int(bob) & ext(x_-6), {<every.NOM girl:-k -q = every & int_-6(girl), {}>}>
+  e15 = merge_nonfinal(e14) = <-s:-t = present, every.NOM girl k = x_-6, every.NOM girl chase bob v = chase & int(bob) & ext(x_-6), {<every.NOM girl:-q = every & int_-6(girl), {}>}>
+  e16 = spellout(e15) = <every.NOM girl -s every.NOM girl chase bob:-t = <present & chase & int(bob) & ext(x_-6)>, {<every.NOM girl:-q = every & int_-6(girl), {}>}>
+  e17 = <ε.Q::+t +q -c = , {}>
+  e18 = insert(e16, e17) = <ε.Q::+t +q -c = , {<every.NOM girl -s every.NOM girl chase bob:-t = <present & chase & int(bob) & ext(x_-6)>, {<every.NOM girl:-q = every & int_-6(girl), {}>}>}>
+  e19 = merge_comp(e18) = <ε.Q:+q -c = , every.NOM girl -s every.NOM girl chase bob t = <present & chase & int(bob) & ext(x_-6)>, {<every.NOM girl:-q = every & int_-6(girl), {}>}>
+  e20 = merge_spec(e19) = <ε.Q:-c = , _ q = every & int_-6(girl), every.NOM girl -s every.NOM girl chase bob t = <present & chase & int(bob) & ext(x_-6)>, {}>
+  e21 = spellout(e20) = <every.NOM girl -s every.NOM girl chase bob:-c = every & int_-6(girl) & <present & chase & int(bob) & ext(x_-6)>, {}>
+  every & int_-6(girl) & <present & chase & int(bob) & ext(x_-6)>
+  True
+  PASS
+
+  ε.Q bob.NOM chase -s some girl
+  e0 = <girl::-n = girl, {}>
+  e1 = <some::+n -d -q = some, {}>
+  e2 = insert(e0, e1) = <some::+n -d -q = some, {<girl::-n = girl, {}>}>
+  e3 = merge_comp(e2) = <some:-d -q = some, girl n = girl, {}>
+  e4 = spellout(e3) = <some girl:-d -q = some & int_-7(girl), {}>
+  e5 = <chase::+d +d -v = chase, {}>
+  e6 = insert(e4, e5) = <chase::+d +d -v = chase, {<some girl:-d -q = some & int_-7(girl), {}>}>
+  e7 = merge_nonfinal(e6) = <chase:+d -v = chase, some girl d = x_-7, {<some girl:-q = some & int_-7(girl), {}>}>
+  e8 = <bob.NOM::-d -k = bob, {}>
+  e9 = insert(e7, e8) = <chase:+d -v = chase, some girl d = x_-7, {<bob.NOM::-d -k = bob, {}>, <some girl:-q = some & int_-7(girl), {}>}>
+  e10 = merge_nonfinal(e9) = <chase:-v = chase, bob.NOM d = bob, some girl d = x_-7, {<bob.NOM::-k = bob, {}>, <some girl:-q = some & int_-7(girl), {}>}>
+  e11 = spellout(e10) = <bob.NOM chase some girl:-v = chase & int(x_-7) & ext(bob), {<bob.NOM::-k = bob, {}>, <some girl:-q = some & int_-7(girl), {}>}>
+  e12 = <-s::+v +k -t = present, {}>
+  e13 = insert(e11, e12) = <-s::+v +k -t = present, {<bob.NOM chase some girl:-v = chase & int(x_-7) & ext(bob), {<bob.NOM::-k = bob, {}>, <some girl:-q = some & int_-7(girl), {}>}>}>
+  e14 = merge_comp(e13) = <-s:+k -t = present, bob.NOM chase some girl v = chase & int(x_-7) & ext(bob), {<bob.NOM::-k = bob, {}>, <some girl:-q = some & int_-7(girl), {}>}>
+  e15 = merge_spec(e14) = <-s:-t = present, _ k = bob, bob.NOM chase some girl v = chase & int(x_-7) & ext(bob), {<some girl:-q = some & int_-7(girl), {}>}>
+  e16 = spellout(e15) = <_ -s bob.NOM chase some girl:-t = <present & chase & int(x_-7) & ext(bob)>, {<some girl:-q = some & int_-7(girl), {}>}>
+  e17 = <ε.Q::+t +q -c = , {}>
+  e18 = insert(e16, e17) = <ε.Q::+t +q -c = , {<_ -s bob.NOM chase some girl:-t = <present & chase & int(x_-7) & ext(bob)>, {<some girl:-q = some & int_-7(girl), {}>}>}>
+  e19 = merge_comp(e18) = <ε.Q:+q -c = , _ -s bob.NOM chase some girl t = <present & chase & int(x_-7) & ext(bob)>, {<some girl:-q = some & int_-7(girl), {}>}>
+  e20 = merge_spec(e19) = <ε.Q:-c = , _ q = some & int_-7(girl), _ -s bob.NOM chase some girl t = <present & chase & int(x_-7) & ext(bob)>, {}>
+  e21 = spellout(e20) = <_ -s bob.NOM chase some girl:-c = some & int_-7(girl) & <present & chase & int(x_-7) & ext(bob)>, {}>
+  some & int_-7(girl) & <present & chase & int(x_-7) & ext(bob)>
+  False
+  PASS
+
+  ε.Q bob.NOM chase -s every girl
+  e0 = <girl::-n = girl, {}>
+  e1 = <every::+n -d -q = every, {}>
+  e2 = insert(e0, e1) = <every::+n -d -q = every, {<girl::-n = girl, {}>}>
+  e3 = merge_comp(e2) = <every:-d -q = every, girl n = girl, {}>
+  e4 = spellout(e3) = <every girl:-d -q = every & int_-8(girl), {}>
+  e5 = <chase::+d +d -v = chase, {}>
+  e6 = insert(e4, e5) = <chase::+d +d -v = chase, {<every girl:-d -q = every & int_-8(girl), {}>}>
+  e7 = merge_nonfinal(e6) = <chase:+d -v = chase, every girl d = x_-8, {<every girl:-q = every & int_-8(girl), {}>}>
+  e8 = <bob.NOM::-d -k = bob, {}>
+  e9 = insert(e7, e8) = <chase:+d -v = chase, every girl d = x_-8, {<bob.NOM::-d -k = bob, {}>, <every girl:-q = every & int_-8(girl), {}>}>
+  e10 = merge_nonfinal(e9) = <chase:-v = chase, bob.NOM d = bob, every girl d = x_-8, {<bob.NOM::-k = bob, {}>, <every girl:-q = every & int_-8(girl), {}>}>
+  e11 = spellout(e10) = <bob.NOM chase every girl:-v = chase & int(x_-8) & ext(bob), {<bob.NOM::-k = bob, {}>, <every girl:-q = every & int_-8(girl), {}>}>
+  e12 = <-s::+v +k -t = present, {}>
+  e13 = insert(e11, e12) = <-s::+v +k -t = present, {<bob.NOM chase every girl:-v = chase & int(x_-8) & ext(bob), {<bob.NOM::-k = bob, {}>, <every girl:-q = every & int_-8(girl), {}>}>}>
+  e14 = merge_comp(e13) = <-s:+k -t = present, bob.NOM chase every girl v = chase & int(x_-8) & ext(bob), {<bob.NOM::-k = bob, {}>, <every girl:-q = every & int_-8(girl), {}>}>
+  e15 = merge_spec(e14) = <-s:-t = present, _ k = bob, bob.NOM chase every girl v = chase & int(x_-8) & ext(bob), {<every girl:-q = every & int_-8(girl), {}>}>
+  e16 = spellout(e15) = <_ -s bob.NOM chase every girl:-t = <present & chase & int(x_-8) & ext(bob)>, {<every girl:-q = every & int_-8(girl), {}>}>
+  e17 = <ε.Q::+t +q -c = , {}>
+  e18 = insert(e16, e17) = <ε.Q::+t +q -c = , {<_ -s bob.NOM chase every girl:-t = <present & chase & int(x_-8) & ext(bob)>, {<every girl:-q = every & int_-8(girl), {}>}>}>
+  e19 = merge_comp(e18) = <ε.Q:+q -c = , _ -s bob.NOM chase every girl t = <present & chase & int(x_-8) & ext(bob)>, {<every girl:-q = every & int_-8(girl), {}>}>
+  e20 = merge_spec(e19) = <ε.Q:-c = , _ q = every & int_-8(girl), _ -s bob.NOM chase every girl t = <present & chase & int(x_-8) & ext(bob)>, {}>
+  e21 = spellout(e20) = <_ -s bob.NOM chase every girl:-c = every & int_-8(girl) & <present & chase & int(x_-8) & ext(bob)>, {}>
+  every & int_-8(girl) & <present & chase & int(x_-8) & ext(bob)>
+  False
+  PASS
+
+  ε.Q some.NOM girl chase -s alice
+  e0 = <girl::-n = girl, {}>
+  e1 = <some.NOM::+n -d -k -q = some, {}>
+  e2 = insert(e0, e1) = <some.NOM::+n -d -k -q = some, {<girl::-n = girl, {}>}>
+  e3 = merge_comp(e2) = <some.NOM:-d -k -q = some, girl n = girl, {}>
+  e4 = spellout(e3) = <some.NOM girl:-d -k -q = some & int_-9(girl), {}>
+  e5 = <chase::+d +d -v = chase, {}>
+  e6 = <alice::-d = alice, {}>
+  e7 = insert(e5, e6) = <chase::+d +d -v = chase, {<alice::-d = alice, {}>}>
+  e8 = merge_comp(e7) = <chase:+d -v = chase, alice d = alice, {}>
+  e9 = insert(e4, e8) = <chase:+d -v = chase, alice d = alice, {<some.NOM girl:-d -k -q = some & int_-9(girl), {}>}>
+  e10 = merge_nonfinal(e9) = <chase:-v = chase, some.NOM girl d = x_-9, alice d = alice, {<some.NOM girl:-k -q = some & int_-9(girl), {}>}>
+  e11 = spellout(e10) = <some.NOM girl chase alice:-v = chase & int(alice) & ext(x_-9), {<some.NOM girl:-k -q = some & int_-9(girl), {}>}>
+  e12 = <-s::+v +k -t = present, {}>
+  e13 = insert(e11, e12) = <-s::+v +k -t = present, {<some.NOM girl chase alice:-v = chase & int(alice) & ext(x_-9), {<some.NOM girl:-k -q = some & int_-9(girl), {}>}>}>
+  e14 = merge_comp(e13) = <-s:+k -t = present, some.NOM girl chase alice v = chase & int(alice) & ext(x_-9), {<some.NOM girl:-k -q = some & int_-9(girl), {}>}>
+  e15 = merge_nonfinal(e14) = <-s:-t = present, some.NOM girl k = x_-9, some.NOM girl chase alice v = chase & int(alice) & ext(x_-9), {<some.NOM girl:-q = some & int_-9(girl), {}>}>
+  e16 = spellout(e15) = <some.NOM girl -s some.NOM girl chase alice:-t = <present & chase & int(alice) & ext(x_-9)>, {<some.NOM girl:-q = some & int_-9(girl), {}>}>
+  e17 = <ε.Q::+t +q -c = , {}>
+  e18 = insert(e16, e17) = <ε.Q::+t +q -c = , {<some.NOM girl -s some.NOM girl chase alice:-t = <present & chase & int(alice) & ext(x_-9)>, {<some.NOM girl:-q = some & int_-9(girl), {}>}>}>
+  e19 = merge_comp(e18) = <ε.Q:+q -c = , some.NOM girl -s some.NOM girl chase alice t = <present & chase & int(alice) & ext(x_-9)>, {<some.NOM girl:-q = some & int_-9(girl), {}>}>
+  e20 = merge_spec(e19) = <ε.Q:-c = , _ q = some & int_-9(girl), some.NOM girl -s some.NOM girl chase alice t = <present & chase & int(alice) & ext(x_-9)>, {}>
+  e21 = spellout(e20) = <some.NOM girl -s some.NOM girl chase alice:-c = some & int_-9(girl) & <present & chase & int(alice) & ext(x_-9)>, {}>
+  some & int_-9(girl) & <present & chase & int(alice) & ext(x_-9)>
+  False
+  PASS
+
+  ε.Q every.NOM girl chase -s alice
+  e0 = <girl::-n = girl, {}>
+  e1 = <every.NOM::+n -d -k -q = every, {}>
+  e2 = insert(e0, e1) = <every.NOM::+n -d -k -q = every, {<girl::-n = girl, {}>}>
+  e3 = merge_comp(e2) = <every.NOM:-d -k -q = every, girl n = girl, {}>
+  e4 = spellout(e3) = <every.NOM girl:-d -k -q = every & int_-10(girl), {}>
+  e5 = <chase::+d +d -v = chase, {}>
+  e6 = <alice::-d = alice, {}>
+  e7 = insert(e5, e6) = <chase::+d +d -v = chase, {<alice::-d = alice, {}>}>
+  e8 = merge_comp(e7) = <chase:+d -v = chase, alice d = alice, {}>
+  e9 = insert(e4, e8) = <chase:+d -v = chase, alice d = alice, {<every.NOM girl:-d -k -q = every & int_-10(girl), {}>}>
+  e10 = merge_nonfinal(e9) = <chase:-v = chase, every.NOM girl d = x_-10, alice d = alice, {<every.NOM girl:-k -q = every & int_-10(girl), {}>}>
+  e11 = spellout(e10) = <every.NOM girl chase alice:-v = chase & int(alice) & ext(x_-10), {<every.NOM girl:-k -q = every & int_-10(girl), {}>}>
+  e12 = <-s::+v +k -t = present, {}>
+  e13 = insert(e11, e12) = <-s::+v +k -t = present, {<every.NOM girl chase alice:-v = chase & int(alice) & ext(x_-10), {<every.NOM girl:-k -q = every & int_-10(girl), {}>}>}>
+  e14 = merge_comp(e13) = <-s:+k -t = present, every.NOM girl chase alice v = chase & int(alice) & ext(x_-10), {<every.NOM girl:-k -q = every & int_-10(girl), {}>}>
+  e15 = merge_nonfinal(e14) = <-s:-t = present, every.NOM girl k = x_-10, every.NOM girl chase alice v = chase & int(alice) & ext(x_-10), {<every.NOM girl:-q = every & int_-10(girl), {}>}>
+  e16 = spellout(e15) = <every.NOM girl -s every.NOM girl chase alice:-t = <present & chase & int(alice) & ext(x_-10)>, {<every.NOM girl:-q = every & int_-10(girl), {}>}>
+  e17 = <ε.Q::+t +q -c = , {}>
+  e18 = insert(e16, e17) = <ε.Q::+t +q -c = , {<every.NOM girl -s every.NOM girl chase alice:-t = <present & chase & int(alice) & ext(x_-10)>, {<every.NOM girl:-q = every & int_-10(girl), {}>}>}>
+  e19 = merge_comp(e18) = <ε.Q:+q -c = , every.NOM girl -s every.NOM girl chase alice t = <present & chase & int(alice) & ext(x_-10)>, {<every.NOM girl:-q = every & int_-10(girl), {}>}>
+  e20 = merge_spec(e19) = <ε.Q:-c = , _ q = every & int_-10(girl), every.NOM girl -s every.NOM girl chase alice t = <present & chase & int(alice) & ext(x_-10)>, {}>
+  e21 = spellout(e20) = <every.NOM girl -s every.NOM girl chase alice:-c = every & int_-10(girl) & <present & chase & int(alice) & ext(x_-10)>, {}>
+  every & int_-10(girl) & <present & chase & int(alice) & ext(x_-10)>
+  False
+  PASS
+#+END_SRC
+
 * Bibliography
 
+- Meaghan Fowlie. Parsing adjuncts. Online, 2015. Retrieved from http://meaghanfowlie.com/documents/fowlie_mit_slides.pdf.
+- Hendrik Harkema. /Parsing Minimalist Languages/. PhD thesis, University of California, Los Angeles, 2001.
+- Tim Hunter. Insertion minimalist grammars: Eliminating redundancies between merge and move. In M. Kanazawa, A. Kornai, M. Kracht, and H. Seki, editors, /The Mathematics of Language/, page 90–107. Springer, Berlin, Heidelberg, 2011.
+- Tim Hunter. /Syntactic Effects of Conjunctivist Semantics/. John Benjamins Publishing Company, 2011.
+- Gregory M Kobele. /Generating Copies: An investigation into structural identity in language and grammar/. PhD thesis, University of California, Los Angeles, 2006.
+- Patrick Niedzielski. fowlie-mga: An implementation of meaghan fowlie’s minimalist grammar with adjunction (mga) formalism in haskell. Online, 2015. Retrieved from https://github.com/pniedzielski/fowlie-mga/.
+- Barbara H. Partee. Montague grammar. In Neil J. Smelser and Paul B. Baltes, editors, /International Encyclopedia of the Social and Behavioral Sciences/. Oxford: Pergamon/Elsevier Science, 2001. Retrieved from http://people.umass.edu/partee/docs/MontagueGrammarElsevier.PDF.
+- Miloš Stanojević. /Minimalist Grammar Transition-Based Parsing/, pages 273–290. Springer Berlin Heidelberg, Berlin, Heidelberg, 2016.
+
 * License
+
+This file is licensed under the GNU GPLv3. See the original source file =mg.org= for details.
 
 # Local Variables:
 # org-src-fontify-natively: nil
