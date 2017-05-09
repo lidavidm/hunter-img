@@ -1,0 +1,6 @@
+#+TITLE: hunter-img
+#+AUTHOR: David Li
+
+This repository contains a sample implementation of Insertion Minimalist Grammars and Conjunctivist semantics, as defined in Hunter (2011) /Syntactic Effects of Conjunctivist Semantics/.
+
+The source code is provided as a literate org-mode file. File =hunter.ml= contains a pre-tangled version of the code (i.e. just the source code, without accompanying commentary).
