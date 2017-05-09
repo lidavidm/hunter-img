@@ -1,0 +1,20 @@
+/* Styles derived from base16 (Materia theme)
+ * https://github.com/chriskempson/base16
+ *
+ * base16 is Copyright (C) 2012 Chris Kempson
+ */
+
+pre                                   { background-color: #263238; color: #CDD3DE; }
+pre .org-comment                      { color: #707880; }
+pre .org-comment-delimiter            { color: #707880; }
+pre .org-keyword                      { color: #82AAFF; }
+pre .org-string                       { color: #8BD649; }
+pre .org-tuareg-font-lock-constructor { color: #FFCC00; }
+pre .org-tuareg-font-lock-governing   { color: #82AAFF; font-weight: bold; }
+pre .org-tuareg-font-lock-module      { color: #FFCC00; }
+pre .org-tuareg-font-lock-operator    { color: #FFFFFF; }
+pre .org-type                         { color: #FFCC00; }
+pre .org-function-name                { color: #EC5F67; }
+pre .org-warning                      { background-color: #EC5F67; display: inline-block; }
+pre .org-constant                     { color: #EA9560; }
+pre .org-builtin                      { color: #EA9560; }

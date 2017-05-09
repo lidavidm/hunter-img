@@ -1,0 +1,62 @@
+body {
+    font-family: serif;
+    font-size: 16px;
+    line-height: 1.3;
+}
+
+/* CSS lock: https://fvsch.com/code/css-locks */
+@media screen and (min-width: 1024px) and (max-width: 1920px) {
+    body {
+        font-size: calc(16px + 6 * (100vw - 1024px) / (1920 - 1024));
+    }
+}
+
+@media screen and (min-width: 1920px) {
+    body {
+        font-size: 22px;
+    }
+}
+
+h1.title {
+    font-size: 2.25em;
+}
+
+#content {
+    margin: 0 auto;
+
+    max-width: 40em;
+}
+
+.definition {
+    padding: 1em;
+
+    border: 1px solid #000;
+}
+
+.definition p:first-child {
+    margin-top: 0;
+}
+
+.definition p:last-child {
+    margin-bottom: 0;
+}
+
+pre {
+    font-family: "Fira Mono", monospace;
+    font-size: 0.85em;
+}
+
+pre.src {
+    overflow-x: auto;
+}
+
+/* Hide MathJax blocks outside the main content (we use them to define commands/environments) */
+.MathJax_Display {
+    margin: 0 !important;
+    height: 0 !important;
+}
+
+#content .MathJax_Display {
+    margin: 1em 0 !important;
+    height: auto !important;
+}
